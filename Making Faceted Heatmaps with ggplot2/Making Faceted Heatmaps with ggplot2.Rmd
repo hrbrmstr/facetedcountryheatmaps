@@ -1,0 +1,247 @@
+---
+title: "Making Faceted Heatmaps with ggplot2"
+author: "Bob Rudis"
+navlink: "[rud.is](http://rud.is/)"
+og:
+  type: "article"
+  title: "Making Faceted Heatmaps with ggplot2"
+  url: "http://rud.is/projects/facetedheatmaps.html"
+  image: "optional opengraph image link"
+footer:
+  - content: '[Twitter](http://twitter.com/hrbrmstr) • [GitHub](http://github.com/hrbrmstr)<br/>'
+  - content: 'Copyright &copy; 2016, Bob Rudis'
+date: "`r Sys.Date()`"
+output: markdowntemplates::skeleton
+---
+```{r, echo = FALSE}
+library(svglite)
+knitr::opts_chunk$set(
+  collapse=TRUE,
+  dev=c("svglite", "png"),
+  comment="#",
+  message=FALSE,
+  warning=FALSE
+)
+```
+We were doing some exploratory data analysis on some attacker data at work and one of the things I was interested is what were "working hours" by country. Now, I don't put a great deal of faith in the precision of geolocated IP addresses since every geolocation database that exists thinks I live in Vermont (I don't) and I know that these databases rely on a pretty "meh" distributed process for getting this local data. However, at a country level, the errors are tolerable provided you use a decent geolocation provider. Since a rant about the precision of IP address geolocation was _not_ the point of this post, let's move on.
+
+One of the best ways to visualize these "working hours" is a temporal heatmap. Jay & I [made a couple](http://datadrivensecurity.info/blog/posts/2014/Jan/dds-github/) as part of our inaugural Data-Driven Security Book blog post to show how much of our collected lives were lost during the creation of our tome.
+
+I have some paired-down, simulated data based on the attacker data we were looking at. Rather than the complete data set, I'm providing 200,000 "events" (RDP login attempts, to be precise) in the `eventlog.csv` file in the `data/` directory that have the `timestamp`, and the `source_country` ISO 3166-1 alpha-2 country code (which is the source of the attack) plus the `tz` time zone of the source IP address. Let's have a look:
+
+```{r}
+library(data.table)  # faster fread() and better weekdays()
+library(dplyr)       # consistent data.frame operations
+library(purrr)       # consistent & safe list/vector munging
+library(tidyr)       # consistent data.frame cleaning
+library(lubridate)   # date manipulation
+library(countrycode) # turn country codes into pretty names
+library(ggplot2)     # base plots are for Coursera professors
+library(scales)      # pairs nicely with ggplot2 for plot label formatting
+library(gridExtra)   # a helper for arranging individual ggplot objects
+library(ggthemes)    # has a clean theme for ggplot2
+library(viridis)     # best. color. palette. evar.
+library(DT)          # prettier data.frame output
+```
+
+```{r cache=TRUE}
+attacks <- tbl_df(fread("../data/eventlog.csv"))
+```
+
+```{r}
+datatable(head(attacks))
+```
+
+For a temporal heatmap, we're going to need the weekday and hour (or as granular as you want to get). I use a `factor` here so I can have ordered weekdays. I need the source timezone weekday/hour so we have to get a bit creative since the time zone parameter to virtually every date/time operation in R only handles a single element vector.
+
+```{r cache=TRUE}
+make_hr_wkday <- function(cc, ts, tz) {
+
+  real_times <- ymd_hms(ts, tz=tz[1], quiet=TRUE)
+
+  data_frame(source_country=cc, 
+             wkday=weekdays(as.Date(real_times, tz=tz[1])),
+             hour=format(real_times, "%H", tz=tz[1]))
+
+}
+
+group_by(attacks, tz) %>%
+  do(make_hr_wkday(.$source_country, .$timestamp, .$tz)) %>% 
+  ungroup() %>% 
+  mutate(wkday=factor(wkday,
+                      levels=levels(weekdays(0, FALSE)))) -> attacks
+```
+
+```{r}
+datatable(head(attacks))
+```
+
+It's pretty straightforward to make an overall heatmap of activity. Group & count the number of "attacks" by weekday and hour then use `geom_tile()`. I'm going to clutter up the pristine ggplot2 commands with some explanation for those still learning ggplot2:
+
+```{r}
+wkdays <- count(attacks, wkday, hour)
+
+datatable(head(wkdays))
+```
+
+Here, we're just feeding in the new `data.frame` we just created to ggplot and telling it we want to use the `hour` column for the x-axis, the `wkday` column for the y-axis and that we are doing a continuous scale fill by the `n` aggregated count: 
+
+```{r}
+gg <- ggplot(wkdays, aes(x=hour, y=wkday, fill=n))
+```
+
+This does all the hard work. `geom_tile()` will make tiles at each x&y location we've already specified. I knew we had events for every hour, but if you had missing days or hours, you could use `tidyr::complete()` to fill those in. We're also telling it to use a thin (0.1 units) white border to separate the tiles.
+
+```{r}
+gg <- gg + geom_tile(color="white", size=0.1)
+```
+
+this has some additional magic in that it's an awesoe color scale. Read the `viridis` package vignette for more info. By specifying a `name` here, we get a nice label on the legend.
+
+```{r}
+gg <- gg + scale_fill_viridis(name="# Events", label=comma)
+```
+
+This ensures the plot will have a 1:1 aspect ratio (i.e. `geom_tile()`--which draws rectangles--will draw nice squares).
+
+```{r}
+gg <- gg + coord_equal()
+```
+
+This tells ggplot to not use an x- or y-axis label and to also not reserve any space for them. I used a pretty bland but descriptive title. If I worked for some other security company I'd've added **"ZOMGOSH CHINA!"** to it.
+
+```{r}
+gg <- gg + labs(x=NULL, y=NULL, title="Events per weekday & time of day")
+```
+
+Here's what makes the plot look _really_ nice. I customize a number of theme elements, starting with a base theme of `theme_tufte()` from the ggthemes package. It removes alot of chart junk without having to do it manually.
+
+```{r}
+gg <- gg + theme_tufte(base_family="Helvetica")
+```
+
+I like my plot titles left-aligned. For `hjust`:
+
+- `0` == left
+- `0.5` == centered
+- `1` == right
+
+```{r}
+gg <- gg + theme(plot.title=element_text(hjust=0))
+```
+
+We don't want any tick marks on the axes and I want the text to be slightly smaller than the default.
+
+```{r}
+gg <- gg + theme(axis.ticks=element_blank())
+gg <- gg + theme(axis.text=element_text(size=7))
+```
+
+For the legend, I just needed to tweak the title and text sizes a wee bit.
+
+```{r fig.width=10}
+gg <- gg + theme(legend.title=element_text(size=8))
+gg <- gg + theme(legend.text=element_text(size=6))
+gg
+```
+
+That's great, but what if we wanted the heatmap breakdown by country? We'll do this two ways, first with each country's heatmap using the same scale, then with each one using it's own scale. That will let us compare at a macro and micro level.
+
+For either view, I want to rank-order the countries and want nice country names versus 2-letter abbreviations. We'll do that first:
+
+```{r}
+count(attacks, source_country) %>% 
+  mutate(percent=percent(n/sum(n)), count=comma(n)) %>% 
+  mutate(country=sprintf("%s (%s)",
+                         countrycode(source_country, "iso2c", "country.name"),
+                         source_country)) %>% 
+  arrange(desc(n)) -> events_by_country
+
+datatable(events_by_country[,5:3])
+```
+
+Now, we'll do a simple ggplot facet, but also exclude the top 2 attacking countries since they skew things a bit (and, we'll see them in the last vis):
+
+```{r}
+filter(attacks, source_country %in% events_by_country$source_country[3:12]) %>% 
+  count(source_country, wkday, hour) %>% 
+  ungroup() %>% 
+  left_join(events_by_country[,c(1,5)]) %>% 
+  complete(country, wkday, hour, fill=list(n=0)) %>% 
+  mutate(country=factor(country,
+                        levels=events_by_country$country[3:12])) -> cc_heat
+```
+
+Before we go all crazy and plot, let me explain ^^ a bit. I'm filtering by the top 10 (excluding the top 2) countries, then doing the group/count. I need the pretty country info, so I'm joining that to the result. Not all countries attacked every day/hour, so we use that `complete()` operation I mentioned earlier to ensure we have values for all countries for each day/hour combination. Finally, I want to print the heatmaps in order, so I turn the country into an ordered factor.
+
+```{r fig.width=9, fig.height=9}
+gg <- ggplot(cc_heat, aes(x=hour, y=wkday, fill=n))
+gg <- gg + geom_tile(color="white", size=0.1)
+gg <- gg + scale_fill_viridis(name="# Events")
+gg <- gg + coord_equal()
+gg <- gg + facet_wrap(~country, ncol=2)
+gg <- gg + labs(x=NULL, y=NULL, title="Events per weekday & time of day by country\n")
+gg <- gg + theme_tufte(base_family="Helvetica")
+gg <- gg + theme(axis.ticks=element_blank())
+gg <- gg + theme(axis.text=element_text(size=5))
+gg <- gg + theme(panel.border=element_blank())
+gg <- gg + theme(plot.title=element_text(hjust=0))
+gg <- gg + theme(strip.text=element_text(hjust=0))
+gg <- gg + theme(panel.margin.x=unit(0.5, "cm"))
+gg <- gg + theme(panel.margin.y=unit(0.5, "cm"))
+gg <- gg + theme(legend.title=element_text(size=6))
+gg <- gg + theme(legend.title.align=1)
+gg <- gg + theme(legend.text=element_text(size=6))
+gg <- gg + theme(legend.position="bottom")
+gg <- gg + theme(legend.key.size=unit(0.2, "cm"))
+gg <- gg + theme(legend.key.width=unit(1, "cm"))
+gg
+```
+
+To get individual scales for each country we need to make `n` separate ggplot object and combine then using `gridExtra::grid.arrange`. It's pretty much the same setup as before, only without the facet call. We'll do the top 16 countries (not excluding anything) this way (pick any number you want, though provided you like scrolling). I didn't bother with a legend title since you kinda know what you're looking at by now :-)
+
+```{r fig.width=9, fig.height=15}
+count(attacks, source_country, wkday, hour) %>% 
+  ungroup() %>% 
+  left_join(events_by_country[,c(1,5)]) %>% 
+  complete(country, wkday, hour, fill=list(n=0)) %>% 
+  mutate(country=factor(country,
+                        levels=events_by_country$country)) -> cc_heat2
+
+lapply(events_by_country$country[1:16], function(cc) {
+  gg <- ggplot(filter(cc_heat2, country==cc), 
+               aes(x=hour, y=wkday, fill=n, frame=country))
+  gg <- gg + geom_tile(color="white", size=0.1)
+  gg <- gg + scale_x_discrete(expand=c(0,0))
+  gg <- gg + scale_y_discrete(expand=c(0,0))
+  gg <- gg + scale_fill_viridis(name="")
+  gg <- gg + coord_equal()
+  gg <- gg + labs(x=NULL, y=NULL, 
+                  title=sprintf("%s", cc))
+  gg <- gg + theme_tufte(base_family="Helvetica")
+  gg <- gg + theme(axis.ticks=element_blank())
+  gg <- gg + theme(axis.text=element_text(size=5))
+  gg <- gg + theme(panel.border=element_blank())
+  gg <- gg + theme(plot.title=element_text(hjust=0, size=6))
+  gg <- gg + theme(panel.margin.x=unit(0.5, "cm"))
+  gg <- gg + theme(panel.margin.y=unit(0.5, "cm"))
+  gg <- gg + theme(legend.title=element_text(size=6))
+  gg <- gg + theme(legend.title.align=1)
+  gg <- gg + theme(legend.text=element_text(size=6))
+  gg <- gg + theme(legend.position="bottom")
+  gg <- gg + theme(legend.key.size=unit(0.2, "cm"))
+  gg <- gg + theme(legend.key.width=unit(1, "cm"))
+  gg
+}) -> cclist
+
+cclist[["ncol"]] <- 2
+
+do.call(grid.arrange, cclist)
+```
+
+
+
+```{r bib, include=FALSE}
+# KEEP THIS AT THE END OF THE DOCUMENT TO GENERATE A LOCAL bib FILE FOR PKGS USED
+knitr::write_bib(sub("^package:", "", grep("package", search(), value=TRUE)), file='skeleton.bib')
+```

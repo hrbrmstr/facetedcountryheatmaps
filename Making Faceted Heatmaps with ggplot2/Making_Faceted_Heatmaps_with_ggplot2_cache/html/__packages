@@ -1,0 +1,11 @@
+base
+svglite
+data.table
+dplyr
+purrr
+lubridate
+ggplot2
+scales
+ggthemes
+viridis
+DT
