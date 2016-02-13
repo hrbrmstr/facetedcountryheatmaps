@@ -6,7 +6,7 @@ og:
   type: "article"
   title: "Making Faceted Heatmaps with ggplot2"
   url: "http://rud.is/projects/facetedheatmaps.html"
-  image: "optional opengraph image link"
+  image: "http://rud.is/projects/heatmapsample.png"
 footer:
   - content: '[Twitter](http://twitter.com/hrbrmstr) • [GitHub](http://github.com/hrbrmstr)<br/>'
   - content: 'Copyright &copy; 2016, Bob Rudis'
