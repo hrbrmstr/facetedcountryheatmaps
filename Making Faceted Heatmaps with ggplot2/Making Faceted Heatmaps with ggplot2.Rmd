@@ -239,7 +239,7 @@ cclist[["ncol"]] <- 2
 do.call(grid.arrange, cclist)
 ```
 
-
+You can find the data and source for this R markdown document [on github](https://github.com/hrbrmstr/facetedcountryheatmaps). You'll need to `devtools::install_github("hrbrmstr/hrbrmrkdn")` first since I'm using a custom template (or just change the `output:` to `html_document` in the YAML header).
 
 ```{r bib, include=FALSE}
 # KEEP THIS AT THE END OF THE DOCUMENT TO GENERATE A LOCAL bib FILE FOR PKGS USED
