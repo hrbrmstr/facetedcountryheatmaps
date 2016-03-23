@@ -96,7 +96,7 @@ This does all the hard work. `geom_tile()` will make tiles at each x&y location 
 gg <- gg + geom_tile(color="white", size=0.1)
 ```
 
-this has some additional magic in that it's an awesoe color scale. Read the `viridis` package vignette for more info. By specifying a `name` here, we get a nice label on the legend.
+this has some additional magic in that it's an awesome color scale. Read the `viridis` package vignette for more info. By specifying a `name` here, we get a nice label on the legend.
 
 ```{r}
 gg <- gg + scale_fill_viridis(name="# Events", label=comma)
